@@ -8,7 +8,7 @@ on:
 
 # 任务列表
 jobs:
-  # --- Windows 任务 (保持不变) ---
+  # --- Windows 任务 (已稳定，保持不变) ---
   build-windows-x64:
     name: Build for Windows (x64)
     runs-on: windows-latest
@@ -58,11 +58,10 @@ jobs:
         with:
           lfs: true
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential dos2unix
       - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
       - name: Compile llama.cpp for x64
-        # 修正: 确保编译参数正确
         run: cd llama.cpp && mkdir build && cd build && cmake .. -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF && cmake --build . --config Release
       - name: Create Debian package structure
         run: |
@@ -72,11 +71,14 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for packaging
         run: |
+          # --- 最终修正: 强制转换换行符, 再追加架构信息 ---
+          dos2unix packaging/linux/control_template
+          cp packaging/linux/control_template staging/DEBIAN/control
+          echo "Architecture: amd64" >> staging/DEBIAN/control
+          
           cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
           cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
-          # 修正: 使用更可靠的方式生成 control 文件
-          { cat packaging/linux/control_template; echo "Architecture: amd64"; } > staging/DEBIAN/control
       - name: Generate .deb package
         run: dpkg-deb --build staging setup-wulu-ai-base-linux-x64-v${{ github.ref_name }}.deb
       - name: Upload Linux x64 Installer Artifact
@@ -94,15 +96,18 @@ jobs:
         with:
           lfs: true
       - name: Install cross-compilation dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu dos2unix
       - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
       - name: Cross-compile llama.cpp for ARM64
-        # 修正: 确保编译参数正确
+        # --- 最终修正: 使用环境变量强制指定编译参数 ---
+        env:
+          CMAKE_C_FLAGS: "-march=armv8-a"
+          CMAKE_CXX_FLAGS: "-march=armv8-a"
         run: |
           cd llama.cpp
           mkdir build && cd build
-          cmake .. -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF
+          cmake .. -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DLLAMA_STATIC=ON -DLLAMA_CURL=OFF
           cmake --build . --config Release
       - name: Create Debian package structure
         run: |
@@ -112,11 +117,14 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for ARM packaging
         run: |
+          # --- 最终修正: 强制转换换行符, 再追加架构信息 ---
+          dos2unix packaging/linux/control_template
+          cp packaging/linux/control_template staging/DEBIAN/control
+          echo "Architecture: arm64" >> staging/DEBIAN/control
+
           cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
           cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
-          # 修正: 使用更可靠的方式生成 control 文件
-          { cat packaging/linux/control_template; echo "Architecture: arm64"; } > staging/DEBIAN/control
       - name: Generate .deb package for ARM64
         run: dpkg-deb --build staging setup-wulu-ai-base-linux-arm64-v${{ github.ref_name }}.deb
       - name: Upload Linux ARM64 Installer Artifact
