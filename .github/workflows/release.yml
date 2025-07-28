@@ -1,29 +1,24 @@
 # 工作流名称
 name: Compile, Build & Release WULU AI Base
 
-# 触发条件：当一个以 "v" 开头的 tag (如 v1.0.0) 被推送到仓库时触发
+# 触发条件
 on:
   push:
     tags: ['v*']
 
 # 任务列表
 jobs:
-  # --- 任务1: 在 Windows 上从源码编译并打包 .exe 安装包 (全新手动模式) ---
+  # --- 任务1: Windows ---
   build-windows-x64:
     name: Build for Windows (x64)
     runs-on: windows-latest
     steps:
-      # 第1步: 检出您的仓库，并拉取LFS文件
       - name: Checkout repository with LFS
         uses: actions/checkout@v4
         with:
           lfs: true
-
-      # 第2步: 拉取 llama.cpp 最新源码
       - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
-
-      # 第3步: 使用 CMake 编译 llama.cpp
       - name: Compile llama.cpp with CMake
         shell: cmd
         run: |
@@ -32,47 +27,34 @@ jobs:
           cd build
           cmake .. -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF
           cmake --build . --config Release
-
-      # 第4步: 创建用于打包的暂存区
       - name: Create staging directory
         run: mkdir staging
-
-      # 第5步: 复制编译好的程序和模型到暂存区
       - name: Copy files to staging
         run: |
           mkdir staging/bin
           cp llama.cpp/build/bin/Release/llama-server.exe staging/bin/
           cp -r model staging/
-
-      # 第6步 (全新): 手动下载并安装 Inno Setup
       - name: Install Inno Setup
         shell: powershell
         run: |
           Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "is-setup.exe"
           Start-Process -FilePath "is-setup.exe" -ArgumentList "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-          
-      # 第7步 (全新): 将 Inno Setup 添加到系统路径
       - name: Add Inno Setup to PATH
         run: echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
-
-      # 第8步 (全新): 直接调用 Inno Setup 命令行编译器
       - name: Run Inno Setup Compiler
         run: iscc "packaging/windows/setup.iss"
-
-      # 第9步: 上传最终的安装包作为产物
       - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: installer-windows-x64
-          path: packaging/windows/Output/*.exe # Inno Setup 默认会把输出放在脚本同级的Output文件夹
+          path: packaging/windows/Output/*.exe
 
-  # --- 任务2: 在 Linux 上为 x64 架构编译并打包 .deb (保持不变) ---
+  # --- 任务2: Linux x64 ---
   build-linux-x64:
     name: Build for Linux (x64)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository with LFS
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           lfs: true
       - name: Install build dependencies
@@ -80,6 +62,7 @@ jobs:
       - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
       - name: Compile llama.cpp for x64
+        # 包含了所有修正
         run: cd llama.cpp && mkdir build && cd build && cmake .. -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF && cmake --build . --config Release
       - name: Create Debian package structure
         run: |
@@ -92,6 +75,7 @@ jobs:
           cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
           cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
+          # 包含了所有修正
           (cat packaging/linux/control_template; echo "Architecture: amd64") > staging/DEBIAN/control
       - name: Generate .deb package
         run: dpkg-deb --build staging setup-wulu-ai-base-linux-x64-v${{ github.ref_name }}.deb
@@ -101,13 +85,12 @@ jobs:
           name: installer-linux-x64
           path: ./*.deb
 
-  # --- 任务3: 在 Linux 上为 ARM64 架构交叉编译并打包 .deb (保持不变) ---
+  # --- 任务3: Linux ARM64 ---
   build-linux-arm64:
     name: Build for Linux (ARM64)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository with LFS
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           lfs: true
       - name: Install cross-compilation dependencies
@@ -115,6 +98,7 @@ jobs:
       - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
       - name: Cross-compile llama.cpp for ARM64
+        # 包含了所有修正
         run: |
           cd llama.cpp
           mkdir build && cd build
@@ -131,6 +115,7 @@ jobs:
           cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
           cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
+          # 包含了所有修正
           (cat packaging/linux/control_template; echo "Architecture: arm64") > staging/DEBIAN/control
       - name: Generate .deb package for ARM64
         run: dpkg-deb --build staging setup-wulu-ai-base-linux-arm64-v${{ github.ref_name }}.deb
