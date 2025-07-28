@@ -1,39 +1,59 @@
-name: Compile, Build & Release
+# 工作流名称
+name: Compile, Build & Release WULU AI Base
 
+# 触发条件：当一个以 "v" 开头的 tag (如 v1.0.0) 被推送到仓库时触发
 on:
   push:
-    tags: ['v*'] # 任何以 v 开头的 tag 都会触发
+    tags: ['v*']
 
+# 任务列表
 jobs:
   # --- 任务1: 在 Windows 上从源码编译并打包 .exe 安装包 ---
   build-windows-x64:
+    name: Build for Windows (x64)
     runs-on: windows-latest
     steps:
-      - name: 1. 检出您的 "蓝图" 仓库
+      # 第1步: 检出您的 "蓝图" 仓库，并拉取LFS文件
+      - name: Checkout repository with LFS
         uses: actions/checkout@v4
-      - name: 2. 拉取 llama.cpp 最新源码
+        with:
+          lfs: true
+
+      # 第2步: 拉取 llama.cpp 最新源码
+      - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
-      - name: 3. 使用 CMake 编译 llama.cpp (静态链接)
+
+      # 第3步: 使用 CMake 编译 llama.cpp (静态链接, 移除CURL依赖)
+      - name: Compile llama.cpp with CMake
         shell: cmd
         run: |
           cd llama.cpp
           mkdir build
           cd build
-          cmake .. -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON
+          cmake .. -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON -DLLAMA_CURL=OFF
           cmake --build . --config Release
-      - name: 4. 创建打包暂存区
+
+      # 第4步: 创建用于打包的暂存区
+      - name: Create staging directory
         run: mkdir staging
-      - name: 5. 复制编译好的程序和模型到暂存区
+
+      # 第5步: 复制编译好的程序和模型到暂存区
+      - name: Copy files to staging
         run: |
-          cp llama.cpp/build/bin/Release/llama-server.exe staging/
+          mkdir staging/bin
+          cp llama.cpp/build/bin/Release/llama-server.exe staging/bin/
           cp -r model staging/
-      - name: 6. 使用 Inno Setup 打包
+
+      # 第6步: 使用 Inno Setup 打包
+      - name: Package with Inno Setup
         uses: crazy-max/ghaction-inno-setup@v3.1.3
         with:
           script: packaging/windows/setup.iss
-          # 定义输出的安装包名称
-          output-file: setup-hami-base-windows-x64-v${{ github.ref_name }}.exe
-      - name: 7. 上传最终的安装包作为产物
+          # 定义包含版本号的输出文件名
+          output-file: setup-wulu-ai-base-windows-x64-v${{ github.ref_name }}.exe
+
+      # 第7步: 上传最终的安装包作为产物
+      - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: installer-windows-x64
@@ -41,71 +61,78 @@ jobs:
 
   # --- 任务2: 在 Linux 上为 x64 架构编译并打包 .deb ---
   build-linux-x64:
+    name: Build for Linux (x64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: 安装编译依赖
+      - name: Checkout repository with LFS
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential
-      - name: 拉取 llama.cpp 源码
+      - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
-      - name: 编译 llama.cpp
-        run: cd llama.cpp && cmake . -DLLAMA_STATIC=1 && cmake --build . --config Release
-      - name: 创建打包暂存区和目录结构
+      - name: Compile llama.cpp
+        run: cd llama.cpp && mkdir build && cd build && cmake .. -DLLAMA_STATIC=1 -DLLAMA_CURL=OFF && cmake --build . --config Release
+      - name: Create Debian package structure
         run: |
           mkdir -p staging/DEBIAN
-          mkdir -p staging/opt/HamiEdgeBase/bin
-          mkdir -p staging/opt/HamiEdgeBase/model
+          mkdir -p staging/opt/WuluAIBase/bin
+          mkdir -p staging/opt/WuluAIBase/model
           mkdir -p staging/usr/share/applications
-      - name: 准备打包文件
+      - name: Prepare files for packaging
         run: |
-          cp llama.cpp/build/bin/server staging/opt/HamiEdgeBase/bin/
-          cp -r model/* staging/opt/HamiEdgeBase/model/
-          cp packaging/linux/hami-edge-base.desktop staging/usr/share/applications/
-          # 动态生成 control 文件
+          cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
+          cp -r model/* staging/opt/WuluAIBase/model/
+          cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
+          # 动态生成 control 文件并注入架构信息
           cat packaging/linux/control_template > staging/DEBIAN/control
           echo "Architecture: amd64" >> staging/DEBIAN/control
-      - name: 生成 .deb 安装包
-        run: dpkg-deb --build staging hami-base-x64.deb
-      - name: 上传产物
+      - name: Generate .deb package
+        run: dpkg-deb --build staging setup-wulu-ai-base-linux-x64-v${{ github.ref_name }}.deb
+      - name: Upload Linux x64 Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: installer-linux-x64
-          path: hami-base-x64.deb
+          path: ./*.deb
 
   # --- 任务3: 在 Linux 上为 ARM64 架构交叉编译并打包 .deb ---
   build-linux-arm64:
+    name: Build for Linux (ARM64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: 安装交叉编译依赖
+      - name: Checkout repository with LFS
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Install cross-compilation dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-      - name: 拉取 llama.cpp 源码
+      - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
-      - name: 交叉编译 llama.cpp for ARM64
+      - name: Cross-compile llama.cpp for ARM64
         run: |
           cd llama.cpp
           mkdir build && cd build
-          cmake .. -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DLLAMA_STATIC=1
+          cmake .. -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DLLAMA_STATIC=1 -DLLAMA_CURL=OFF
           cmake --build . --config Release
-      - name: 创建打包暂存区
-        # ... (此部分与 build-linux-x64 的"创建打包暂存区"步骤完全相同) ...
+      - name: Create Debian package structure
         run: |
           mkdir -p staging/DEBIAN
-          mkdir -p staging/opt/HamiEdgeBase/bin
-          mkdir -p staging/opt/HamiEdgeBase/model
+          mkdir -p staging/opt/WuluAIBase/bin
+          mkdir -p staging/opt/WuluAIBase/model
           mkdir -p staging/usr/share/applications
-      - name: 准备ARM打包文件
+      - name: Prepare files for ARM packaging
         run: |
-          cp llama.cpp/build/bin/server staging/opt/HamiEdgeBase/bin/
-          cp -r model/* staging/opt/HHamiEdgeBase/model/
-          cp packaging/linux/hami-edge-base.desktop staging/usr/share/applications/
-          # 动态生成 control 文件并指定ARM架构
+          cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
+          cp -r model/* staging/opt/WuluAIBase/model/
+          cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
+          # 动态生成 control 文件并注入ARM架构信息
           cat packaging/linux/control_template > staging/DEBIAN/control
           echo "Architecture: arm64" >> staging/DEBIAN/control
-      - name: 生成 .deb 安装包
-        run: dpkg-deb --build staging hami-base-arm64.deb
-      - name: 上传产物
+      - name: Generate .deb package for ARM64
+        run: dpkg-deb --build staging setup-wulu-ai-base-linux-arm64-v${{ github.ref_name }}.deb
+      - name: Upload Linux ARM64 Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: installer-linux-arm64
-          path: hami-base-arm64.deb
+          path: ./*.deb
