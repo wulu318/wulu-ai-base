@@ -1,5 +1,5 @@
 # 工作流名称
-name: Compile, Build & Release WULU AI Base
+name: Download, Build & Release WULU AI Base
 
 # 触发条件
 on:
@@ -17,22 +17,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-      - name: Clone llama.cpp repository
-        run: git clone https://github.com/ggerganov/llama.cpp.git
-      - name: Compile llama.cpp with CMake
-        shell: cmd
-        run: |
-          cd llama.cpp
-          mkdir build
-          cd build
-          cmake .. -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF
-          cmake --build . --config Release
+      # 新增：下载官方预编译包
+      - name: Download llama.cpp pre-compiled binary
+        run: Invoke-WebRequest -Uri "https://github.com/ggerganov/llama.cpp/releases/download/b2734/llama-b2734-bin-win-cpu-x64.zip" -OutFile "llama-bin.zip"
+      # 新增：解压程序包
+      - name: Unzip binary package
+        run: Expand-Archive -Path "llama-bin.zip" -DestinationPath "llama-bin"
       - name: Create staging directory
         run: mkdir staging
       - name: Copy files to staging
         run: |
           mkdir staging/bin
-          cp llama.cpp/build/bin/Release/llama-server.exe staging/bin/
+          cp llama-bin/llama-server.exe staging/bin/
+          cp llama-bin/*.dll staging/bin/
           cp -r model staging/
       - name: Install Inno Setup
         shell: powershell
@@ -49,7 +46,7 @@ jobs:
           name: installer-windows-x64
           path: packaging/windows/Output/*.exe
 
-  # --- 任务2: Linux x64 (应用最终修复) ---
+  # --- 任务2: Linux x64 ---
   build-linux-x64:
     name: Build for Linux (x64)
     runs-on: ubuntu-latest
@@ -57,12 +54,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential dos2unix
-      - name: Clone llama.cpp repository
-        run: git clone https://github.com/ggerganov/llama.cpp.git
-      - name: Compile llama.cpp for x64
-        run: cd llama.cpp && mkdir build && cd build && cmake .. -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF && cmake --build . --config Release
+      # 新增：下载并安装 unzip
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y dos2unix unzip
+      # 新增：下载官方预编译包
+      - name: Download llama.cpp pre-compiled binary
+        run: wget "https://github.com/ggerganov/llama.cpp/releases/download/b2734/llama-b2734-bin-ubuntu-x64.zip" -O llama-bin.zip
+      # 新增：解压程序包
+      - name: Unzip binary package
+        run: unzip llama-bin.zip -d llama-bin
       - name: Create Debian package structure
         run: |
           mkdir -p staging/DEBIAN
@@ -71,12 +71,10 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for packaging
         run: |
-          # --- 最终修正: 强制转换换行符, 再用最可靠的两步法生成 control 文件 ---
           dos2unix packaging/linux/control_template
           cp packaging/linux/control_template staging/DEBIAN/control
           echo "Architecture: amd64" >> staging/DEBIAN/control
-          
-          cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
+          cp llama-bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
           cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
       - name: Generate .deb package
@@ -87,7 +85,7 @@ jobs:
           name: installer-linux-x64
           path: ./*.deb
 
-  # --- 任务3: Linux ARM64 (应用最终修复) ---
+  # --- 任务3: Linux ARM64 ---
   build-linux-arm64:
     name: Build for Linux (ARM64)
     runs-on: ubuntu-latest
@@ -95,20 +93,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - name: Install cross-compilation dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu dos2unix
-      - name: Clone llama.cpp repository
-        run: git clone https://github.com/ggerganov/llama.cpp.git
-      - name: Cross-compile llama.cpp for ARM64
-        # --- 最终修正: 使用环境变量强制指定编译参数 ---
-        env:
-          CMAKE_C_FLAGS: "-march=armv8-a"
-          CMAKE_CXX_FLAGS: "-march=armv8-a"
-        run: |
-          cd llama.cpp
-          mkdir build && cd build
-          cmake .. -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DLLAMA_STATIC=ON -DLLAMA_CURL=OFF
-          cmake --build . --config Release
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y dos2unix unzip
+      # 新增：下载官方预编译的 ARM 包
+      - name: Download llama.cpp pre-compiled ARM binary
+        run: wget "https://github.com/ggerganov/llama.cpp/releases/download/b2734/llama-b2734-bin-linux-arm64.zip" -O llama-bin.zip
+      - name: Unzip binary package
+        run: unzip llama-bin.zip -d llama-bin
       - name: Create Debian package structure
         run: |
           mkdir -p staging/DEBIAN
@@ -117,12 +108,10 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for ARM packaging
         run: |
-          # --- 最终修正: 强制转换换行符, 再用最可靠的两步法生成 control 文件 ---
           dos2unix packaging/linux/control_template
           cp packaging/linux/control_template staging/DEBIAN/control
           echo "Architecture: arm64" >> staging/DEBIAN/control
-
-          cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
+          cp llama-bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
           cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
       - name: Generate .deb package for ARM64
