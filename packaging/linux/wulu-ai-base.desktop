@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=WULU AI 本地基座
+Comment=本地运行的AI算力服务 by WULU
+Exec=/opt/WuluAIBase/bin/llama-server -m /opt/WuluAIBase/model/qwen3-0.6b-q4_1.gguf --host 127.0.0.1 --port 56565 --log-disable
+Icon=utilities-terminal
+Type=Application
+Terminal=true
+Categories=Utility;
