@@ -7,9 +7,9 @@ OutputBaseFilename=setup-wulu-ai-base-windows-x64
 ArchitecturesInstallIn64BitMode=x64
 
 [Files]
-; --- 修正在这里 ---
-; 我们使用 ..\..\staging\* 来表示从当前目录向上走两级，再进入staging目录
-; 这样就能正确找到文件了
+; --- 修正后的代码行 ---
+; 我们使用 ..\..\staging\* 来表示从当前脚本目录向上走两级，再进入staging目录
+; 这样就能正确找到文件了。
 Source: "..\..\staging\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
