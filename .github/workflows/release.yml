@@ -8,7 +8,7 @@ on:
 
 # 任务列表
 jobs:
-  # --- Windows 任务 (已稳定，保持不变) ---
+  # --- 任务1: Windows ---
   build-windows-x64:
     name: Build for Windows (x64)
     runs-on: windows-latest
@@ -71,7 +71,7 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for packaging
         run: |
-          # --- 最终修正: 强制转换换行符, 再追加架构信息 ---
+          # --- 最终修正: 强制转换换行符, 再用最可靠的两步法生成 control 文件 ---
           dos2unix packaging/linux/control_template
           cp packaging/linux/control_template staging/DEBIAN/control
           echo "Architecture: amd64" >> staging/DEBIAN/control
@@ -117,7 +117,7 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for ARM packaging
         run: |
-          # --- 最终修正: 强制转换换行符, 再追加架构信息 ---
+          # --- 最终修正: 强制转换换行符, 再用最可靠的两步法生成 control 文件 ---
           dos2unix packaging/linux/control_template
           cp packaging/linux/control_template staging/DEBIAN/control
           echo "Architecture: arm64" >> staging/DEBIAN/control
