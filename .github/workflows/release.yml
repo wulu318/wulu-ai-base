@@ -5,124 +5,134 @@ on:
     tags: ['v*']
 
 jobs:
-  # --- Windows构建修复 ---
+  # --- 任务1: Windows ---
   build-windows-x64:
+    name: Build for Windows (x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository with LFS
+        uses: actions/checkout@v4
         with:
           lfs: true
-          submodules: recursive  # 关键修复：递归克隆子模块
-      
-      # 删除克隆步骤（直接用checkout的子模块）
-      - name: Compile llama.cpp
-        shell: bash
+      - name: Clone llama.cpp repository
+        run: git clone https://github.com/ggerganov/llama.cpp.git
+      - name: Compile llama.cpp with CMake
+        shell: cmd
         run: |
           cd llama.cpp
           mkdir build
           cd build
-          cmake .. -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_SERVER=ON
-          cmake --build . --config Release --target server
-
-      - name: Prepare staging
+          cmake .. -DBUILD_SHARED_LIBS=OFF -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF
+          cmake --build . --config Release
+      - name: Create staging directory
+        run: mkdir staging
+      - name: Copy files to staging
         run: |
-          mkdir -p staging/bin
-          mkdir -p staging/model
-          cp llama.cpp/build/bin/Release/server.exe staging/bin/llama-server.exe
-
+          mkdir staging/bin
+          cp llama.cpp/build/bin/Release/llama-server.exe staging/bin/
+          cp -r model staging/
       - name: Install Inno Setup
-        uses: pinage404/innosetup-action@v1
-        with:
-          version: '6.2.2'
-
-      - name: Compile installer
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "is-setup.exe"
+          Start-Process -FilePath "is-setup.exe" -ArgumentList "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+      - name: Add Inno Setup to PATH
+        run: echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+      - name: Run Inno Setup Compiler
         run: iscc "packaging/windows/setup.iss"
-        working-directory: ${{ github.workspace }}
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: installer-windows-x64
           path: packaging/windows/Output/*.exe
 
-  # --- Linux x64修复 ---
+  # --- 任务2: Linux x64 ---
   build-linux-x64:
+    name: Build for Linux (x64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
-          submodules: recursive
-      
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake dos2unix
-
-      - name: Compile llama.cpp
+      - name: Install build dependencies
+        run: sudo apt apt-get update && sudo apt-get install -y cmake build-essential dos2unix
+      - name: Clone llama.cpp repository
+        run: git clone https://github.com/ggerganov/llama.cpp.git
+      - name: Compile llama.cpp for x64
         run: |
-          cd llama.cpp
-          mkdir build
-          cd build
-          cmake .. -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_SERVER=ON
-          cmake --build . --config Release --target server
-
-      - name: Prepare staging
+          cd llama.cpp && mkdir build && cd build && \
+          cmake .. -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF && \
+          cmake --build . --config Release
+      - name: Create Debian package structure
         run: |
           mkdir -p staging/DEBIAN
-          mkdir -p staging/opt/WuluAIBase/{bin,model}
+          mkdir -p staging/opt/WuluAIBase/bin
+          mkdir -p staging/opt/WuluAIBase/model
           mkdir -p staging/usr/share/applications
+      - name: Prepare files for packaging
+        run: |
+          # 确保control文件正确包含Architecture字段
+          dos2unix packaging/linux/control_template
+          # 直接创建完整的control文件，避免追加可能导致的问题
+          (cat packaging/linux/control_template && echo "Architecture: amd64") > staging/DEBIAN/control
           
-          cp packaging/linux/control_template staging/DEBIAN/control
-          echo "Architecture: amd64" >> staging/DEBIAN/control
-          cp llama.cpp/build/bin/server staging/opt/WuluAIBase/bin/llama-server
-          chmod +x staging/opt/WuluAIBase/bin/llama-server
-
-      - name: Build DEB package
-        run: dpkg-deb --build staging wulu-ai-base_${{ github.ref_name }}_amd64.deb
-
-      - uses: actions/upload-artifact@v4
+          cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
+          cp -r model/* staging/opt/WuluAIBase/model/
+          cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
+      - name: Generate .deb package
+        run: dpkg-deb --build staging setup-wulu-ai-base-linux-x64-v${{ github.ref_name }}.deb
+      - name: Upload Linux x64 Installer Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: installer-linux-x64
-          path: '*.deb'
+          path: ./*.deb
 
-  # --- ARM64交叉编译修复 ---
+  # --- 任务3: Linux ARM64 ---
   build-linux-arm64:
+    name: Build for Linux (ARM64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
-          submodules: recursive
-      
-      - name: Set up cross-compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
-      - name: Cross-compile
+      - name: Install cross-compilation dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu dos2unix
+      - name: Clone llama.cpp repository
+        run: git clone https://github.com/ggerganov/llama.cpp.git
+      - name: Cross-compile llama.cpp for ARM64
         run: |
           cd llama.cpp
-          mkdir build-arm64
-          cd build-arm64
+          mkdir build && cd build
+          # 明确指定ARM架构，不使用-march=native
           cmake .. \
-            -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain/arm64.cmake \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DLLAMA_STATIC=ON \
-            -DLLAMA_SERVER=ON
-          cmake --build . --config Release --target server
-
-      - name: Prepare ARM staging
+            -DLLAMA_NATIVE=OFF \
+            -DLLAMA_CURL=OFF \
+            -DCMAKE_C_FLAGS="-march=armv8-a" \
+            -DCMAKE_CXX_FLAGS="-march=armv8-a"
+          cmake --build . --config Release
+      - name: Create Debian package structure
         run: |
           mkdir -p staging/DEBIAN
-          mkdir -p staging/opt/WuluAIBase/{bin,model}
+          mkdir -p staging/opt/WuluAIBase/bin
+          mkdir -p staging/opt/WuluAIBase/model
           mkdir -p staging/usr/share/applications
-          
-          cp packaging/linux/control_template staging/DEBIAN/control
-          echo "Architecture: arm64" >> staging/DEBIAN/control
-          cp llama.cpp/build-arm64/bin/server staging/opt/WuluAIBase/bin/llama-server
-          chmod +x staging/opt/WuluAIBase/bin/llama-server
+      - name: Prepare files for ARM packaging
+        run: |
+          # 确保control文件正确包含Architecture字段
+          dos2unix packaging/linux/control_template
+          # 直接创建完整的control文件，避免追加可能导致的问题
+          (cat packaging/linux/control_template && echo "Architecture: arm64") > staging/DEBIAN/control
 
-      - name: Build ARM DEB
-        run: dpkg-deb --build staging wulu-ai-base_${{ github.ref_name }}_arm64.deb
-
-      - uses: actions/upload-artifact@v4
+          cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
+          cp -r model/* staging/opt/WuluAIBase/model/
+          cp packaging/linux/wulu-ai-base.desktop staging/usr/share/applications/
+      - name: Generate .deb package for ARM64
+        run: dpkg-deb --build staging setup-wulu-ai-base-linux-arm64-v${{ github.ref_name }}.deb
+      - name: Upload Linux ARM64 Installer Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: installer-linux-arm64
-          path: '*.deb'
+          path: ./*.deb
