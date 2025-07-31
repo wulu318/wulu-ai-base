@@ -5,7 +5,7 @@ on:
     tags: ['v*']
 
 jobs:
-  # --- 任务1: Windows ---
+  # --- 任务1: Windows (保持不变) ---
   build-windows-x64:
     name: Build for Windows (x64)
     runs-on: windows-latest
@@ -55,13 +55,19 @@ jobs:
         with:
           lfs: true
       - name: Install build dependencies
-        run: sudo apt apt-get update && sudo apt-get install -y cmake build-essential dos2unix
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential dos2unix
       - name: Clone llama.cpp repository
         run: git clone https://github.com/ggerganov/llama.cpp.git
       - name: Compile llama.cpp for x64
         run: |
-          cd llama.cpp && mkdir build && cd build && \
-          cmake .. -DLLAMA_STATIC=ON -DLLAMA_NATIVE=OFF -DLLAMA_CURL=OFF && \
+          cd llama.cpp
+          mkdir build && cd build
+          cmake .. \
+            -DLLAMA_STATIC=ON \
+            -DLLAMA_NATIVE=OFF \
+            -DLLAMA_CURL=OFF \
+            -DCMAKE_C_FLAGS="-march=x86-64-v2" \  # 明确指定x86架构
+            -DCMAKE_CXX_FLAGS="-march=x86-64-v2"
           cmake --build . --config Release
       - name: Create Debian package structure
         run: |
@@ -71,10 +77,12 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for packaging
         run: |
-          # 确保control文件正确包含Architecture字段
           dos2unix packaging/linux/control_template
-          # 直接创建完整的control文件，避免追加可能导致的问题
-          (cat packaging/linux/control_template && echo "Architecture: amd64") > staging/DEBIAN/control
+          # 修复：创建完整的control文件（包含架构字段）
+          cat <<EOF > staging/DEBIAN/control
+          $(cat packaging/linux/control_template)
+          Architecture: amd64
+          EOF
           
           cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
@@ -87,7 +95,7 @@ jobs:
           name: installer-linux-x64
           path: ./*.deb
 
-  # --- 任务3: Linux ARM64 ---
+  # --- 任务3: Linux ARM64 (关键修复) ---
   build-linux-arm64:
     name: Build for Linux (ARM64)
     runs-on: ubuntu-latest
@@ -103,14 +111,15 @@ jobs:
         run: |
           cd llama.cpp
           mkdir build && cd build
-          # 明确指定ARM架构，不使用-march=native
           cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \  # 明确指定目标系统
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \  # 关键修复：声明ARM架构
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DLLAMA_STATIC=ON \
-            -DLLAMA_NATIVE=OFF \
             -DLLAMA_CURL=OFF \
-            -DCMAKE_C_FLAGS="-march=armv8-a" \
+            -DLLAMA_NATIVE=OFF \
+            -DCMAKE_C_FLAGS="-march=armv8-a" \  # 使用有效ARM架构
             -DCMAKE_CXX_FLAGS="-march=armv8-a"
           cmake --build . --config Release
       - name: Create Debian package structure
@@ -121,10 +130,12 @@ jobs:
           mkdir -p staging/usr/share/applications
       - name: Prepare files for ARM packaging
         run: |
-          # 确保control文件正确包含Architecture字段
           dos2unix packaging/linux/control_template
-          # 直接创建完整的control文件，避免追加可能导致的问题
-          (cat packaging/linux/control_template && echo "Architecture: arm64") > staging/DEBIAN/control
+          # 修复：创建完整的control文件（包含架构字段）
+          cat <<EOF > staging/DEBIAN/control
+          $(cat packaging/linux/control_template)
+          Architecture: arm64
+          EOF
 
           cp llama.cpp/build/bin/llama-server staging/opt/WuluAIBase/bin/
           cp -r model/* staging/opt/WuluAIBase/model/
